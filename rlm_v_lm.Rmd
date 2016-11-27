@@ -1,0 +1,54 @@
+---
+title: "lm_v_rlm"
+author: "Mara Wood"
+date: "November 26, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+```{r echo = FALSE}
+library(tidyverse)
+library(gapminder)
+library(modelr)
+library(purrr)
+library(MASS)
+```
+Below, I used nested data frames to calculate the slope of the linear regression and robust linear regression for each country for life expectancy regressed on the log of the GDP per capita. 
+```{r}
+gap_nested <- gapminder %>% mutate(log_gdpPercap = log10(gdpPercap)) %>%
+  group_by(continent, country) %>% nest()
+
+gap_lm <- function(df){
+  lm(lifeExp ~ log_gdpPercap, data = df)
+}
+gap_all_lm <- map(gap_nested$data, gap_lm)
+gap_nested <- gap_nested %>% mutate(lm_fit = map(data, gap_lm))
+gap_nested <- gap_nested %>% mutate(lm_coefs = map(lm_fit, coef)) 
+gap_unnested <- unnest(gap_nested, lm_coefs, .drop = TRUE)
+
+gap_rlm <- function(df){
+  rlm(lifeExp ~ log_gdpPercap, data = df)
+}
+gap_all_rlm <- map(gap_nested$data, gap_rlm)
+gap_nested <- gap_nested %>% mutate(rlm_fit = map(data, gap_rlm))
+gap_nested <- gap_nested %>% mutate(rlm_coefs = map(rlm_fit, coef)) 
+gap_unnested <- unnest(gap_nested, rlm_coefs, lm_coefs, .drop = TRUE)
+gap_unnested$difference <- abs(gap_unnested$rlm_coefs - gap_unnested$lm_coefs)
+gap_unnested<- gap_unnested[-seq(1, nrow(gap_unnested), by = 2),]
+arrange(gap_unnested, desc(difference))
+```
+
+Below, please find the plot of the slope estimates from lm versus the slope estimates from rlm.  
+```{r}
+ggplot(data = gap_unnested, mapping = aes(lm_coefs, rlm_coefs)) + geom_point() + geom_line()
+```
+
+Here, we see the two countries with the greatest differences between the robust linear regression and the regular linear regression are Senegal and Lesotho.  Below, are scatter plots of log10 per capita GDP versus life expectency for these two countries.  
+```{r}
+ggplot(data = filter(gapminder, country == "Senegal"), mapping = aes(log10(gdpPercap), lifeExp)) + geom_point() + xlab("GDP Per Capita (Log)") + ylab("Life Expectancy") + ggtitle("Senegal")
+
+ggplot(data = filter(gapminder, country == "Lesotho"), mapping = aes(log10(gdpPercap), lifeExp)) + geom_point() + xlab("GDP Per Capita (Log)") + ylab("Life Expectancy") + ggtitle("Lesotho")
+```
